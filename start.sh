@@ -118,7 +118,6 @@ for i in {1..4}; do
     networks:
       - tiler-network
     volumes:
-      - ./apphost:/app
       - apphost${i}-shm:/dev/shm
 EOF
 done

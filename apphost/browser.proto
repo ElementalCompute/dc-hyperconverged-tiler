@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package browser;
+
+service BrowserService {
+  // Navigate to a URL
+  rpc Navigate(NavigateRequest) returns (NavigateResponse) {}
+
+  // Get current URL
+  rpc GetURL(GetURLRequest) returns (GetURLResponse) {}
+
+  // Take screenshot
+  rpc Screenshot(ScreenshotRequest) returns (ScreenshotResponse) {}
+
+  // Execute JavaScript
+  rpc ExecuteScript(ExecuteScriptRequest) returns (ExecuteScriptResponse) {}
+
+  // Get page status
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {}
+}
+
+message NavigateRequest {
+  string url = 1;
+  int32 timeout_ms = 2; // Optional timeout in milliseconds
+  bool wait_until_load = 3; // Wait for page load
+}
+
+message NavigateResponse {
+  bool success = 1;
+  string error = 2;
+  string final_url = 3;
+}
+
+message GetURLRequest {}
+
+message GetURLResponse {
+  string url = 1;
+}
+
+message ScreenshotRequest {
+  string format = 1; // png, jpeg
+  int32 quality = 2; // For jpeg
+}
+
+message ScreenshotResponse {
+  bytes data = 1;
+  string error = 2;
+}
+
+message ExecuteScriptRequest {
+  string script = 1;
+}
+
+message ExecuteScriptResponse {
+  string result = 1;
+  string error = 2;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  bool browser_ready = 1;
+  bool page_loaded = 2;
+  string current_url = 3;
+  bool streaming = 4;
+}
