@@ -1,0 +1,77 @@
+version: "3.8"
+
+services:
+  static-tiler:
+    build: ./static-tiler
+    container_name: static-tiler
+    ports:
+      - "6000:6000"
+      - "4000:4000"
+    networks:
+      - tiler-network
+    volumes:
+      - ./static-tiler:/app
+      - apphost1-shm:/dev/shm/apphost1
+      - apphost2-shm:/dev/shm/apphost2
+      - apphost3-shm:/dev/shm/apphost3
+      - apphost4-shm:/dev/shm/apphost4
+    environment:
+      - PORT=6000
+    restart: unless-stopped
+
+  apphost:
+    build: ./apphost
+    container_name: apphost
+    ports:
+      - "3000:3000"
+    networks:
+      - tiler-network
+    volumes:
+      - ./apphost:/app
+    environment:
+      - DISPLAY=:99
+      - PORT=3000
+    restart: unless-stopped
+
+  controller:
+    build: ./controller
+    container_name: controller
+    ports:
+      - "5000:5000"
+    networks:
+      - tiler-network
+    volumes:
+      - ./controller:/app
+    environment:
+      - PORT=5000
+    restart: unless-stopped
+
+networks:
+  tiler-network:
+    driver: bridge
+
+volumes:
+  apphost1-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost2-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost3-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost4-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
