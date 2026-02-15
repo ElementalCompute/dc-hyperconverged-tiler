@@ -26,4 +26,5 @@ RUN chmod +x /app/start_server.sh
 COPY . /app
 
 WORKDIR /app
-CMD ["/app/start_server.sh"]
+ENTRYPOINT []
+CMD ["python3", "server.py"]
