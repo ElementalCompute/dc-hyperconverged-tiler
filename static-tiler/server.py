@@ -95,6 +95,26 @@ class StaticTiler:
         """Build the GStreamer pipeline with input selectors and NVIDIA components."""
         logger.info("Building GStreamer pipeline...")
 
+        # Check FIFO availability before building pipeline
+        available_fifos = []
+        for i in range(self.num_apphosts):
+            fifo_path = f"/dev/shm/apphost{i + 1}/apphost{i + 1}_video.fifo"
+            if os.path.exists(fifo_path):
+                available_fifos.append(i)
+                logger.info(f"Found FIFO for apphost{i + 1}: {fifo_path}")
+            else:
+                logger.warning(f"FIFO not found for apphost{i + 1}: {fifo_path}")
+
+        if not available_fifos:
+            logger.error("No apphost FIFOs found! Pipeline will fail to start.")
+            logger.error(
+                "Make sure apphosts are running and creating FIFOs in /dev/shm/apphostN/"
+            )
+        else:
+            logger.info(
+                f"Found {len(available_fifos)} available apphost FIFOs out of {self.num_apphosts}"
+            )
+
         # Initialize GStreamer
         Gst.init(None)
 
@@ -324,6 +344,12 @@ class StaticTiler:
                 # Construct FIFO path
                 fifo_path = f"/dev/shm/apphost{apphost_idx + 1}/apphost{apphost_idx + 1}_video.fifo"
 
+                # Check if FIFO exists
+                if not os.path.exists(fifo_path):
+                    logger.warning(
+                        f"FIFO does not exist: {fifo_path} - will wait for it to be created"
+                    )
+
                 # Create filesrc
                 filesrc = Gst.ElementFactory.make(
                     "filesrc", f"filesrc-slot{slot_idx}-apphost{apphost_idx}"
@@ -398,10 +424,11 @@ class StaticTiler:
                 selector.set_property("active-pad", sink_pads[assigned_apphost])
                 logger.info(f"Set slot {slot_idx} to use apphost {assigned_apphost}")
 
-        # Add bus watch for messages
+        # Add bus watch for messages with async handling
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message", self.on_bus_message)
+        bus.enable_sync_message_emission()
 
         logger.info("Pipeline built successfully")
         return True
@@ -427,6 +454,8 @@ class StaticTiler:
                 logger.info(
                     f"Pipeline state changed from {old_state.value_nick} to {new_state.value_nick}"
                 )
+
+        return True
 
     def start(self):
         """Start the pipeline."""
