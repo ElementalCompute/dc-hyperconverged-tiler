@@ -252,25 +252,19 @@ class StaticTiler:
                 )
                 return False
 
-            # Get sink pad from streammux using request_pad_simple
+            # Link capsfilter to streammux using link_pads with request pad
             sinkpad_name = f"sink_{slot_idx}"
-            sinkpad = streammux.request_pad_simple(sinkpad_name)
-            if not sinkpad:
-                logger.error(f"Failed to get sink pad {sinkpad_name} from streammux")
-                return False
+            logger.info(
+                f"Linking capsfilter to streammux pad {sinkpad_name} for slot {slot_idx}"
+            )
 
-            srcpad = capsfilter.get_static_pad("src")
-            if not srcpad:
-                logger.error(
-                    f"Failed to get src pad from capsfilter for slot {slot_idx}"
-                )
-                return False
-
-            if srcpad.link(sinkpad) != Gst.PadLinkReturn.OK:
+            if not capsfilter.link_pads("src", streammux, sinkpad_name):
                 logger.error(
                     f"Failed to link capsfilter to streammux for slot {slot_idx}"
                 )
                 return False
+
+            logger.info(f"Successfully linked slot {slot_idx} to streammux")
 
             # Create source branches - one for each apphost feeding into this selector
             for apphost_idx in range(self.num_apphosts):
