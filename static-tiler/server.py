@@ -173,16 +173,17 @@ class StaticTiler:
         tee_mux = Gst.ElementFactory.make("tee", "tee-after-mux")
         fpsdisplay_mux = Gst.ElementFactory.make("fpsdisplaysink", "fps-after-mux")
         if fpsdisplay_mux:
-            fpsdisplay_mux.set_property("text-overlay", False)
             fakesink_mux = Gst.ElementFactory.make("fakesink", "fake-mux")
             if fakesink_mux:
                 fakesink_mux.set_property("sync", False)
+                fakesink_mux.set_property("silent", False)
             fpsdisplay_mux.set_property("video-sink", fakesink_mux)
             fpsdisplay_mux.set_property("signal-fps-measurements", True)
             fpsdisplay_mux.set_property("fps-update-interval", 2000)
             fpsdisplay_mux.connect(
                 "fps-measurements", self.on_fps_measurement, "AFTER-MUX"
             )
+            logger.info("FPS monitoring connected for AFTER-MUX")
         queue_mux_debug = Gst.ElementFactory.make("queue", "queue-mux-debug")
         if queue_mux_debug:
             queue_mux_debug.set_property("max-size-buffers", 2)
@@ -225,48 +226,38 @@ class StaticTiler:
 
         # Build input selector branches for each input slot
         for slot_idx in range(self.num_inputs):
-            # 1-to-1 mapping: slot N uses apphost N
-            apphost_idx = slot_idx
+            # TEMPORARY: Use videotestsrc instead of filesrc to test pipeline
+            # This bypasses FIFO blocking issues
+            logger.info(f"Creating videotestsrc for slot {slot_idx} (TEMPORARY TEST)")
 
-            # Construct FIFO path - maps to shared volume
-            # apphost creates at /dev/shm/apphostN_video.fifo in its container
-            # which is mounted at /dev/shm/apphostN/ in static-tiler
-            fifo_path = (
-                f"/dev/shm/apphost{apphost_idx + 1}/apphost{apphost_idx + 1}_video.fifo"
+            videotestsrc = Gst.ElementFactory.make(
+                "videotestsrc", f"videotestsrc-slot{slot_idx}"
             )
-
-            # Check if FIFO exists
-            if not os.path.exists(fifo_path):
-                logger.warning(
-                    f"FIFO does not exist: {fifo_path} - will wait for it to be created"
-                )
-
-            # Create filesrc
-            filesrc = Gst.ElementFactory.make("filesrc", f"filesrc-slot{slot_idx}")
-            if not filesrc:
-                logger.error(f"Failed to create filesrc for slot {slot_idx}")
+            if not videotestsrc:
+                logger.error(f"Failed to create videotestsrc for slot {slot_idx}")
                 return False
 
-            filesrc.set_property("location", fifo_path)
+            # Set different patterns for each slot to distinguish them
+            videotestsrc.set_property(
+                "pattern", slot_idx % 25
+            )  # Cycle through patterns
+            videotestsrc.set_property("is-live", True)
 
-            # Create videoparse
-            videoparse = Gst.ElementFactory.make(
-                "videoparse", f"videoparse-slot{slot_idx}"
+            # Create capsfilter for resolution
+            caps_test = Gst.Caps.from_string(
+                "video/x-raw,width=1920,height=1080,framerate=30/1,format=RGBA"
             )
-            if not videoparse:
-                logger.error(f"Failed to create videoparse for slot {slot_idx}")
+            capsfilter_test = Gst.ElementFactory.make(
+                "capsfilter", f"capsfilter-test-{slot_idx}"
+            )
+            if not capsfilter_test:
+                logger.error(f"Failed to create capsfilter for slot {slot_idx}")
                 return False
-
-            videoparse.set_property(
-                "format", 8
-            )  # GST_VIDEO_FORMAT_RGBA (raw input from apphost)
-            videoparse.set_property("width", 1920)
-            videoparse.set_property("height", 1080)
-            videoparse.set_property("framerate", Gst.Fraction(30, 1))
+            capsfilter_test.set_property("caps", caps_test)
 
             # Add to pipeline
-            self.pipeline.add(filesrc)
-            self.pipeline.add(videoparse)
+            self.pipeline.add(videotestsrc)
+            self.pipeline.add(capsfilter_test)
 
             # Create queue after videoparse
             queue_parse = Gst.ElementFactory.make("queue", f"queue-parse-{slot_idx}")
@@ -323,6 +314,15 @@ class StaticTiler:
             capsfilter.set_property("caps", caps)
             self.pipeline.add(capsfilter)
 
+            # Add probe to monitor data flow
+            def buffer_probe(pad, info, user_data):
+                logger.info(f"[PROBE] Buffer flowing through capsfilter-{user_data}")
+                return Gst.PadProbeReturn.OK
+
+            srcpad = capsfilter.get_static_pad("src")
+            if srcpad:
+                srcpad.add_probe(Gst.PadProbeType.BUFFER, buffer_probe, slot_idx)
+
             # Create queue between capsfilter and streammux
             queue_mux = Gst.ElementFactory.make("queue", f"queue-mux-{slot_idx}")
             if not queue_mux:
@@ -331,15 +331,15 @@ class StaticTiler:
             queue_mux.set_property("max-size-buffers", 10)
             self.pipeline.add(queue_mux)
 
-            # Link: filesrc -> videoparse -> queue
-            if not filesrc.link(videoparse):
+            # Link: videotestsrc -> capsfilter -> queue
+            if not videotestsrc.link(capsfilter_test):
                 logger.error(
-                    f"Failed to link filesrc to videoparse for slot {slot_idx}"
+                    f"Failed to link videotestsrc to capsfilter for slot {slot_idx}"
                 )
                 return False
 
-            if not videoparse.link(queue_parse):
-                logger.error(f"Failed to link videoparse to queue for slot {slot_idx}")
+            if not capsfilter_test.link(queue_parse):
+                logger.error(f"Failed to link capsfilter to queue for slot {slot_idx}")
                 return False
 
             # Add tee and fpsdisplaysink after queue_parse for debugging each slot
@@ -354,13 +354,15 @@ class StaticTiler:
                 )
                 if fakesink_slot:
                     fakesink_slot.set_property("sync", False)
+                    fakesink_slot.set_property("silent", False)
                 fpsdisplay_slot.set_property("video-sink", fakesink_slot)
                 fpsdisplay_slot.set_property("signal-fps-measurements", True)
-                fpsdisplay_slot.set_property("fps-update-interval", 5000)
+                fpsdisplay_slot.set_property("fps-update-interval", 2000)
                 fpsdisplay_slot.set_property("silent", False)
                 fpsdisplay_slot.connect(
                     "fps-measurements", self.on_fps_measurement, f"SLOT-{slot_idx}"
                 )
+                logger.info(f"FPS monitoring connected for SLOT-{slot_idx}")
             queue_slot_debug = Gst.ElementFactory.make(
                 "queue", f"queue-slot-debug-{slot_idx}"
             )
@@ -487,18 +489,29 @@ class StaticTiler:
             self.stop()
         elif t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
-            logger.error(f"Pipeline error: {err.message}")
+            logger.error(f"Pipeline error from {message.src.get_name()}: {err.message}")
             logger.error(f"Debug info: {debug}")
-            self.stop()
+            # Don't stop on error, just log it
         elif t == Gst.MessageType.WARNING:
             warn, debug = message.parse_warning()
-            logger.warning(f"Pipeline warning: {warn.message}")
+            logger.warning(
+                f"Pipeline warning from {message.src.get_name()}: {warn.message}"
+            )
+            if debug:
+                logger.warning(f"Debug info: {debug}")
         elif t == Gst.MessageType.STATE_CHANGED:
             if message.src == self.pipeline:
                 old_state, new_state, pending_state = message.parse_state_changed()
                 logger.info(
                     f"Pipeline state changed from {old_state.value_nick} to {new_state.value_nick}"
                 )
+        elif t == Gst.MessageType.STREAM_STATUS:
+            status, owner = message.parse_stream_status()
+            logger.info(
+                f"Stream status from {message.src.get_name()}: {status.value_nick}"
+            )
+        elif t == Gst.MessageType.ASYNC_DONE:
+            logger.info(f"Async done from {message.src.get_name()}")
 
         return True
 
@@ -521,6 +534,25 @@ class StaticTiler:
             f"Tiling {self.num_inputs} slots in {self.grid_cols}x{self.grid_rows} grid from {self.num_apphosts} apphosts"
         )
         logger.info("FPS monitoring enabled at strategic pipeline points")
+
+        # Log element states after a short delay
+        import threading
+
+        def check_states():
+            import time
+
+            time.sleep(3)
+            logger.info("=== Pipeline Element States ===")
+            it = self.pipeline.iterate_elements()
+            while True:
+                result, elem = it.next()
+                if result != Gst.IteratorResult.OK:
+                    break
+                state_ret, state, pending = elem.get_state(0)
+                logger.info(f"  {elem.get_name()}: {state.value_nick}")
+            logger.info("=== End Element States ===")
+
+        threading.Thread(target=check_states, daemon=True).start()
 
         return True
 
