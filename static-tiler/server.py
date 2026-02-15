@@ -133,9 +133,8 @@ class StaticTiler:
             return False
 
         encoder.set_property("bitrate", 8000000)  # 8 Mbps
-        encoder.set_property("preset-level", 1)  # UltraFastPreset
-        encoder.set_property("insert-sps-pps", 1)
-        encoder.set_property("bufapi-version", 1)
+        encoder.set_property("control-rate", 1)  # Constant bitrate
+        encoder.set_property("iframeinterval", 30)  # I-frame interval
 
         # Create h264parse
         h264parse = Gst.ElementFactory.make("h264parse", "h264-parser")
