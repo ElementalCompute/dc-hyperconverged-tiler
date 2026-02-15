@@ -109,8 +109,8 @@ class StaticTiler:
             )
             return False
 
-        streammux.set_property("width", 3840)
-        streammux.set_property("height", 2160)
+        streammux.set_property("width", 1920)
+        streammux.set_property("height", 1080)
         streammux.set_property("batch-size", self.num_inputs)
         streammux.set_property("batched-push-timeout", 40000)  # 40ms
         streammux.set_property("live-source", 1)
