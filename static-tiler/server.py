@@ -209,10 +209,41 @@ class StaticTiler:
         self.pipeline.add(h264parse)
         self.pipeline.add(tcpsink)
 
-        # Link main pipeline elements
-        if not streammux.link(tiler):
-            logger.error("Failed to link streammux to tiler")
+        # Add tee and fpsdisplaysink after streammux for debugging
+        tee_mux = Gst.ElementFactory.make("tee", "tee-after-mux")
+        fpsdisplay_mux = Gst.ElementFactory.make("fpsdisplaysink", "fps-after-mux")
+        if fpsdisplay_mux:
+            fpsdisplay_mux.set_property("text-overlay", False)
+            fpsdisplay_mux.set_property(
+                "video-sink", Gst.ElementFactory.make("fakesink", "fake-mux")
+            )
+            fpsdisplay_mux.set_property("signal-fps-measurements", True)
+            fpsdisplay_mux.set_property("fps-update-interval", 1000)
+        queue_mux_debug = Gst.ElementFactory.make("queue", "queue-mux-debug")
+
+        self.pipeline.add(tee_mux)
+        if fpsdisplay_mux:
+            self.pipeline.add(fpsdisplay_mux)
+        self.pipeline.add(queue_mux_debug)
+
+        # Link main pipeline elements with tee for debugging
+        if not streammux.link(tee_mux):
+            logger.error("Failed to link streammux to tee")
             return False
+
+        # Main path: tee -> tiler
+        if not tee_mux.link(tiler):
+            logger.error("Failed to link tee to tiler")
+            return False
+
+        # Debug path: tee -> queue -> fpsdisplaysink -> fakesink
+        if fpsdisplay_mux:
+            if not tee_mux.link(queue_mux_debug):
+                logger.error("Failed to link tee to queue_mux_debug")
+                return False
+            if not queue_mux_debug.link(fpsdisplay_mux):
+                logger.error("Failed to link queue to fpsdisplaysink")
+                return False
 
         if not tiler.link(encoder):
             logger.error("Failed to link tiler to encoder")
@@ -304,10 +335,54 @@ class StaticTiler:
             queue_mux.set_property("max-size-buffers", 10)
             self.pipeline.add(queue_mux)
 
-            # Link: selector -> queue -> videoconvert -> videoscale -> capsfilter_cpu -> nvvideoconvert -> capsfilter -> queue -> streammux
-            if not selector.link(queue_post):
-                logger.error(f"Failed to link selector to queue for slot {slot_idx}")
+            # Add tee and fpsdisplaysink after selector for debugging each slot
+            tee_slot = Gst.ElementFactory.make("tee", f"tee-slot-{slot_idx}")
+            fpsdisplay_slot = Gst.ElementFactory.make(
+                "fpsdisplaysink", f"fps-slot-{slot_idx}"
+            )
+            if fpsdisplay_slot:
+                fpsdisplay_slot.set_property("text-overlay", False)
+                fakesink_slot = Gst.ElementFactory.make(
+                    "fakesink", f"fake-slot-{slot_idx}"
+                )
+                if fakesink_slot:
+                    fakesink_slot.set_property("sync", False)
+                fpsdisplay_slot.set_property("video-sink", fakesink_slot)
+                fpsdisplay_slot.set_property("signal-fps-measurements", False)
+                fpsdisplay_slot.set_property("silent", True)
+            queue_slot_debug = Gst.ElementFactory.make(
+                "queue", f"queue-slot-debug-{slot_idx}"
+            )
+            if queue_slot_debug:
+                queue_slot_debug.set_property("max-size-buffers", 2)
+
+            self.pipeline.add(tee_slot)
+            if fpsdisplay_slot:
+                self.pipeline.add(fpsdisplay_slot)
+            if queue_slot_debug:
+                self.pipeline.add(queue_slot_debug)
+
+            # Link: selector -> tee -> queue_post (main path) and tee -> queue_debug -> fpsdisplaysink (debug path)
+            if not selector.link(tee_slot):
+                logger.error(f"Failed to link selector to tee for slot {slot_idx}")
                 return False
+
+            if not tee_slot.link(queue_post):
+                logger.error(f"Failed to link tee to queue for slot {slot_idx}")
+                return False
+
+            # Debug path
+            if fpsdisplay_slot and queue_slot_debug:
+                if not tee_slot.link(queue_slot_debug):
+                    logger.error(
+                        f"Failed to link tee to queue_slot_debug for slot {slot_idx}"
+                    )
+                    # Non-fatal, continue
+                elif not queue_slot_debug.link(fpsdisplay_slot):
+                    logger.error(
+                        f"Failed to link queue_slot_debug to fpsdisplaysink for slot {slot_idx}"
+                    )
+                    # Non-fatal, continue
 
             if not queue_post.link(videoconv):
                 logger.error(
@@ -505,6 +580,7 @@ class StaticTiler:
         logger.info(
             f"Tiling {self.num_inputs} slots in {self.grid_cols}x{self.grid_rows} grid from {self.num_apphosts} apphosts"
         )
+        logger.info("FPS monitoring enabled at strategic pipeline points")
 
         return True
 
