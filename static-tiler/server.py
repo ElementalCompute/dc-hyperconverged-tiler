@@ -351,7 +351,7 @@ class StaticTiler:
                 )  # GST_VIDEO_FORMAT_RGBA (raw input from apphost)
                 videoparse.set_property("width", 1920)
                 videoparse.set_property("height", 1080)
-                videoparse.set_property("framerate", "30/1")
+                videoparse.set_property("framerate", Gst.Fraction(30, 1))
 
                 # Create queue before selector
                 queue_pre = Gst.ElementFactory.make(

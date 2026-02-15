@@ -9,6 +9,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3-gi \
     python3-gi-cairo \
+    python3-gst-1.0 \
     gir1.2-gstreamer-1.0 \
     gir1.2-gst-plugins-base-1.0 \
     libgirepository1.0-dev \
