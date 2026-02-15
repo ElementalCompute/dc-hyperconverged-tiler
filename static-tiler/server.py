@@ -221,7 +221,7 @@ class StaticTiler:
 
             # Create capsfilter for dimensions before GPU upload
             caps_cpu = Gst.Caps.from_string(
-                "video/x-raw,format=RGBA,width=1920,height=1080,framerate=30/1"
+                "video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1"
             )
             capsfilter_cpu = Gst.ElementFactory.make(
                 "capsfilter", f"capsfilter-cpu-{slot_idx}"
@@ -240,8 +240,8 @@ class StaticTiler:
             self.pipeline.add(nvvidconv)
 
             # Create capsfilter for nvvideoconvert output
-            # Simplified caps - let nvstreammux negotiate dimensions
-            caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=RGBA")
+            # Use NV12 format for nvstreammux compatibility
+            caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12")
             capsfilter = Gst.ElementFactory.make("capsfilter", f"capsfilter-{slot_idx}")
             capsfilter.set_property("caps", caps)
             self.pipeline.add(capsfilter)
@@ -346,7 +346,9 @@ class StaticTiler:
                     )
                     return False
 
-                videoparse.set_property("format", 8)  # GST_VIDEO_FORMAT_RGBA
+                videoparse.set_property(
+                    "format", 8
+                )  # GST_VIDEO_FORMAT_RGBA (raw input from apphost)
                 videoparse.set_property("width", 1920)
                 videoparse.set_property("height", 1080)
                 videoparse.set_property("framerate", Gst.Fraction(30, 1))
