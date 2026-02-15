@@ -15,8 +15,31 @@ services:
       - apphost2-shm:/dev/shm/apphost2
       - apphost3-shm:/dev/shm/apphost3
       - apphost4-shm:/dev/shm/apphost4
+      - apphost5-shm:/dev/shm/apphost5
+      - apphost6-shm:/dev/shm/apphost6
+      - apphost7-shm:/dev/shm/apphost7
+      - apphost8-shm:/dev/shm/apphost8
+      - apphost9-shm:/dev/shm/apphost9
+      - apphost10-shm:/dev/shm/apphost10
+      - apphost11-shm:/dev/shm/apphost11
+      - apphost12-shm:/dev/shm/apphost12
+      - apphost13-shm:/dev/shm/apphost13
+      - apphost14-shm:/dev/shm/apphost14
+      - apphost15-shm:/dev/shm/apphost15
+      - apphost16-shm:/dev/shm/apphost16
     environment:
       - PORT=6000
+      - NUM_INPUTS=16
+      - NUM_APPHOSTS=16
+      - GRID_COLS=4
+      - GRID_ROWS=4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
 
   apphost:
@@ -66,6 +89,78 @@ volumes:
       device: tmpfs
       o: size=1g
   apphost4-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost5-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost6-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost7-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost8-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost9-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost10-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost11-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost12-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost13-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost14-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost15-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+  apphost16-shm:
     driver: local
     driver_opts:
       type: tmpfs

@@ -46,6 +46,8 @@ class BrowserManager:
         self.page = None
         self.gst_pipeline = None
         self.xvfb_process = None
+        self.x11vnc_process = None
+        self.novnc_process = None
         self.ready = False
         self.streaming = False
 
@@ -55,6 +57,12 @@ class BrowserManager:
 
         # Start Xvfb
         await self._start_xvfb()
+
+        # Start x11vnc
+        await self._start_x11vnc()
+
+        # Start noVNC
+        await self._start_novnc()
 
         # Start Playwright
         await self._start_browser()
@@ -86,6 +94,61 @@ class BrowserManager:
         # Wait for X server to be ready
         await asyncio.sleep(2)
         logger.info("Xvfb started")
+
+    async def _start_x11vnc(self):
+        """Start x11vnc VNC server"""
+        service_name = os.environ.get("SERVICE_NAME", "apphost")
+        # Extract number from service name (e.g., apphost1 -> 1, apphost2 -> 2)
+        service_num = "".join(filter(str.isdigit, service_name)) or "1"
+        vnc_port = 5900 + int(service_num)  # VNC port: 5901, 5902, 5903, 5904
+
+        logger.info(f"Starting x11vnc on port {vnc_port}...")
+
+        self.x11vnc_process = subprocess.Popen(
+            [
+                "x11vnc",
+                "-display",
+                self.display,
+                "-rfbport",
+                str(vnc_port),
+                "-forever",
+                "-shared",
+                "-nopw",  # No password for simplicity
+                "-quiet",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Wait for VNC server to be ready
+        await asyncio.sleep(1)
+        logger.info(f"x11vnc started on port {vnc_port}")
+
+    async def _start_novnc(self):
+        """Start noVNC websocket proxy"""
+        service_name = os.environ.get("SERVICE_NAME", "apphost")
+        # Extract number from service name
+        service_num = "".join(filter(str.isdigit, service_name)) or "1"
+        vnc_port = 5900 + int(service_num)
+        novnc_port = 7000 + int(service_num) - 1  # noVNC port: 7000, 7001, 7002, 7003
+
+        logger.info(f"Starting noVNC on port {novnc_port}...")
+
+        self.novnc_process = subprocess.Popen(
+            [
+                "/opt/novnc/utils/novnc_proxy",
+                "--vnc",
+                f"localhost:{vnc_port}",
+                "--listen",
+                str(novnc_port),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Wait for noVNC to be ready
+        await asyncio.sleep(1)
+        logger.info(f"noVNC started on port {novnc_port} (VNC backend: {vnc_port})")
 
     async def _start_browser(self):
         """Start Playwright browser"""
@@ -240,6 +303,14 @@ class BrowserManager:
         if self.gst_pipeline:
             self.gst_pipeline.terminate()
             self.gst_pipeline.wait()
+
+        if self.novnc_process:
+            self.novnc_process.terminate()
+            self.novnc_process.wait()
+
+        if self.x11vnc_process:
+            self.x11vnc_process.terminate()
+            self.x11vnc_process.wait()
 
         if self.context:
             await self.context.close()

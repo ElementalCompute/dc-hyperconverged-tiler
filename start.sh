@@ -2,9 +2,64 @@
 
 set -e
 
+# Default configuration
+DEFAULT_NUM_INPUTS=16
+DEFAULT_NUM_APPHOSTS=16
+DEFAULT_GRID_COLS=4
+DEFAULT_GRID_ROWS=4
+
+# Parse command line arguments
+NUM_INPUTS="${1:-$DEFAULT_NUM_INPUTS}"
+NUM_APPHOSTS="${2:-$DEFAULT_NUM_APPHOSTS}"
+GRID_COLS="${3:-$DEFAULT_GRID_COLS}"
+GRID_ROWS="${4:-$DEFAULT_GRID_ROWS}"
+
+# Validate inputs
+if ! [[ "$NUM_INPUTS" =~ ^[0-9]+$ ]] || [ "$NUM_INPUTS" -lt 1 ]; then
+    echo "Error: NUM_INPUTS must be a positive integer"
+    exit 1
+fi
+
+if ! [[ "$NUM_APPHOSTS" =~ ^[0-9]+$ ]] || [ "$NUM_APPHOSTS" -lt 1 ]; then
+    echo "Error: NUM_APPHOSTS must be a positive integer"
+    exit 1
+fi
+
+if ! [[ "$GRID_COLS" =~ ^[0-9]+$ ]] || [ "$GRID_COLS" -lt 1 ]; then
+    echo "Error: GRID_COLS must be a positive integer"
+    exit 1
+fi
+
+if ! [[ "$GRID_ROWS" =~ ^[0-9]+$ ]] || [ "$GRID_ROWS" -lt 1 ]; then
+    echo "Error: GRID_ROWS must be a positive integer"
+    exit 1
+fi
+
+# Validate that NUM_INPUTS equals GRID_COLS * GRID_ROWS
+EXPECTED_INPUTS=$((GRID_COLS * GRID_ROWS))
+if [ "$NUM_INPUTS" -ne "$EXPECTED_INPUTS" ]; then
+    echo "Error: NUM_INPUTS ($NUM_INPUTS) must equal GRID_COLS * GRID_ROWS ($GRID_COLS * $GRID_ROWS = $EXPECTED_INPUTS)"
+    exit 1
+fi
+
+# Validate that NUM_APPHOSTS >= NUM_INPUTS
+if [ "$NUM_APPHOSTS" -lt "$NUM_INPUTS" ]; then
+    echo "Error: NUM_APPHOSTS ($NUM_APPHOSTS) must be >= NUM_INPUTS ($NUM_INPUTS)"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_FILE="$SCRIPT_DIR/.build_cache"
-COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose-generated.yml"
+
+echo "=========================================="
+echo "Starting Tiler-v3 with configuration:"
+echo "  NUM_INPUTS:    $NUM_INPUTS"
+echo "  NUM_APPHOSTS:  $NUM_APPHOSTS"
+echo "  GRID:          ${GRID_COLS}x${GRID_ROWS}"
+echo "  OUTPUT:        4K (3840x2160)"
+echo "=========================================="
+echo ""
 
 # Function to calculate hash of directory contents
 calculate_dir_hash() {
@@ -57,17 +112,17 @@ SERVICES=("static-tiler" "apphost" "controller")
 for service in "${SERVICES[@]}"; do
     if needs_rebuild "$service"; then
         echo "Detected changes in $service, rebuilding..."
-        docker-compose -f "$COMPOSE_FILE" build "$service"
+        docker-compose -f "$SCRIPT_DIR/docker-compose.yml" build "$service"
         update_cache "$service" "$(calculate_dir_hash "$SCRIPT_DIR/$service")"
     else
         echo "$service unchanged, skipping rebuild"
     fi
 done
 
-# Create extended compose file for 4 apphosts
-EXTENDED_COMPOSE_FILE="$SCRIPT_DIR/docker-compose-extended.yml"
+# Generate dynamic docker-compose file
+echo "Generating docker-compose configuration..."
 
-cat > "$EXTENDED_COMPOSE_FILE" << 'EOF'
+cat > "$COMPOSE_FILE" << EOF
 version: '3.8'
 
 services:
@@ -81,89 +136,123 @@ services:
       - tiler-network
     volumes:
       - ./static-tiler:/app
-      - apphost1-shm:/dev/shm/apphost1
-      - apphost2-shm:/dev/shm/apphost2
-      - apphost3-shm:/dev/shm/apphost3
-      - apphost4-shm:/dev/shm/apphost4
+EOF
+
+# Add volume mappings for all apphosts
+for i in $(seq 1 $NUM_APPHOSTS); do
+    cat >> "$COMPOSE_FILE" << EOF
+      - apphost${i}-shm:/dev/shm/apphost${i}
+EOF
+done
+
+# Add environment variables for static-tiler
+cat >> "$COMPOSE_FILE" << EOF
     environment:
       - PORT=6000
+      - NUM_INPUTS=$NUM_INPUTS
+      - NUM_APPHOSTS=$NUM_APPHOSTS
+      - GRID_COLS=$GRID_COLS
+      - GRID_ROWS=$GRID_ROWS
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
 
   controller:
-    extends:
-      file: docker-compose.yml
-      service: controller
+    build: ./controller
+    container_name: controller
+    ports:
+      - "5000:5000"
+    networks:
+      - tiler-network
+    environment:
+      - PORT=5000
+    restart: unless-stopped
     depends_on:
       - static-tiler
-      - apphost1
-      - apphost2
-      - apphost3
-      - apphost4
-
 EOF
 
-# Add 4 apphost services
-for i in {1..4}; do
+# Add apphost dependencies to controller
+for i in $(seq 1 $NUM_APPHOSTS); do
+    cat >> "$COMPOSE_FILE" << EOF
+      - apphost${i}
+EOF
+done
+
+# Generate apphost services
+for i in $(seq 1 $NUM_APPHOSTS); do
     port=$((3000 + i - 1))
-    cat << EOF >> "$EXTENDED_COMPOSE_FILE"
-  apphost$i:
+    grpc_port=$((7000 + i - 1))
+    cat >> "$COMPOSE_FILE" << EOF
+
+  apphost${i}:
     build: ./apphost
-    container_name: apphost$i
+    container_name: apphost${i}
     environment:
       - DISPLAY=:99
       - PORT=$port
       - SERVICE_NAME=apphost${i}
     ports:
       - "$port:$port"
+      - "$grpc_port:$grpc_port"
     networks:
       - tiler-network
     volumes:
       - apphost${i}-shm:/dev/shm
+    restart: unless-stopped
 EOF
 done
 
-# Add networks and volumes section
-cat << 'EOF' >> "$EXTENDED_COMPOSE_FILE"
+# Add networks section
+cat >> "$COMPOSE_FILE" << EOF
 
 networks:
   tiler-network:
     driver: bridge
 
 volumes:
-  apphost1-shm:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=1g
-  apphost2-shm:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=1g
-  apphost3-shm:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=1g
-  apphost4-shm:
+EOF
+
+# Generate volume definitions for all apphosts
+for i in $(seq 1 $NUM_APPHOSTS); do
+    cat >> "$COMPOSE_FILE" << EOF
+  apphost${i}-shm:
     driver: local
     driver_opts:
       type: tmpfs
       device: tmpfs
       o: size=1g
 EOF
+done
+
+echo "Docker compose file generated: $COMPOSE_FILE"
+echo ""
 
 # Start all services
 echo "Starting services..."
-docker-compose -f "$EXTENDED_COMPOSE_FILE" up -d
+docker-compose -f "$COMPOSE_FILE" up -d
 
 # Show status
 echo ""
+echo "=========================================="
 echo "Services started!"
+echo "=========================================="
 echo ""
-docker-compose -f "$EXTENDED_COMPOSE_FILE" ps
+docker-compose -f "$COMPOSE_FILE" ps
+echo ""
+echo "Configuration:"
+echo "  - Static Tiler:  http://localhost:6000 (TCP stream output)"
+echo "  - Controller:    http://localhost:5000"
+echo "  - Apphosts:      http://localhost:3000-$((3000 + NUM_APPHOSTS - 1))"
+echo ""
+echo "To view logs:"
+echo "  docker-compose -f $COMPOSE_FILE logs -f [service-name]"
+echo ""
+echo "To stop:"
+echo "  docker-compose -f $COMPOSE_FILE down"
 echo ""
 echo "Setup complete!"

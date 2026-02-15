@@ -13,6 +13,10 @@ RUN apt-get update && \
     x11vnc \
     fluxbox \
     xterm \
+    # noVNC and dependencies
+    git \
+    python3-numpy \
+    net-tools \
     # GStreamer and plugins
     gstreamer1.0-tools \
     gstreamer1.0-plugins-base \
@@ -68,6 +72,11 @@ RUN wget -q -O /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com
 # Install Python dependencies
 COPY requirements.txt requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install noVNC and websockify
+RUN git clone https://github.com/novnc/noVNC.git /opt/novnc && \
+    git clone https://github.com/novnc/websockify /opt/novnc/utils/websockify && \
+    ln -s /opt/novnc/vnc.html /opt/novnc/index.html
 
 # Install Playwright browsers with proper environment
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright
