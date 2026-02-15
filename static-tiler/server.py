@@ -43,53 +43,18 @@ class StaticTiler:
                 f"num_inputs ({num_inputs}) must equal grid_cols * grid_rows ({grid_cols * grid_rows})"
             )
 
-        if num_apphosts < num_inputs:
+        if num_apphosts != num_inputs:
             raise ValueError(
-                f"num_apphosts ({num_apphosts}) must be >= num_inputs ({num_inputs})"
+                f"num_apphosts ({num_apphosts}) must equal num_inputs ({num_inputs}) for 1-to-1 mapping"
             )
 
-        # Control signal mapping: which apphost feeds which input slot
-        # Default: round-robin assignment
-        self.input_assignments = [i % num_apphosts for i in range(num_inputs)]
-
+        # 1-to-1 mapping: apphost N feeds slot N
         self.pipeline: Optional[Gst.Pipeline] = None
         self.loop: Optional[GLib.MainLoop] = None
-        self.input_selectors: List[Gst.Element] = []
 
         logger.info(
-            f"Initializing StaticTiler with {num_inputs} inputs, {num_apphosts} apphosts, {grid_cols}x{grid_rows} grid"
+            f"Initializing StaticTiler with {num_inputs} inputs (1-to-1 mapping), {num_apphosts} apphosts, {grid_cols}x{grid_rows} grid"
         )
-
-    def set_input_assignment(self, slot_index: int, apphost_index: int):
-        """
-        Set which apphost feeds a particular input slot.
-
-        Args:
-            slot_index: The input slot (0 to N-1)
-            apphost_index: The apphost source (0 to M-1)
-        """
-        if slot_index < 0 or slot_index >= self.num_inputs:
-            logger.error(
-                f"Invalid slot_index {slot_index}, must be 0-{self.num_inputs - 1}"
-            )
-            return
-
-        if apphost_index < 0 or apphost_index >= self.num_apphosts:
-            logger.error(
-                f"Invalid apphost_index {apphost_index}, must be 0-{self.num_apphosts - 1}"
-            )
-            return
-
-        self.input_assignments[slot_index] = apphost_index
-
-        # If pipeline is running, switch the input selector
-        if self.input_selectors and slot_index < len(self.input_selectors):
-            selector = self.input_selectors[slot_index]
-            # The active pad is the apphost_index pad
-            sink_pads = list(selector.iterate_sink_pads())
-            if apphost_index < len(sink_pads):
-                selector.set_property("active-pad", sink_pads[apphost_index])
-                logger.info(f"Switched slot {slot_index} to apphost {apphost_index}")
 
     def on_fps_measurement(self, fpsdisplaysink, fps, droprate, avgfps, name):
         """Callback for FPS measurements."""
@@ -98,31 +63,20 @@ class StaticTiler:
         )
 
     def create_placeholder_fifos(self):
-        """Create placeholder FIFOs for apphosts that don't exist yet."""
-        logger.info("Checking and creating placeholder FIFOs...")
+        """Check for FIFO availability - do NOT create placeholder FIFOs as volumes are managed by apphosts."""
+        logger.info("Checking FIFO availability...")
 
         for i in range(self.num_apphosts):
             fifo_dir = f"/dev/shm/apphost{i + 1}"
             fifo_path = f"{fifo_dir}/apphost{i + 1}_video.fifo"
 
-            # Create directory if it doesn't exist
-            if not os.path.exists(fifo_dir):
-                try:
-                    os.makedirs(fifo_dir, exist_ok=True)
-                    logger.info(f"Created directory: {fifo_dir}")
-                except Exception as e:
-                    logger.error(f"Failed to create directory {fifo_dir}: {e}")
-                    continue
-
-            # Create FIFO if it doesn't exist
-            if not os.path.exists(fifo_path):
-                try:
-                    os.mkfifo(fifo_path)
-                    logger.info(f"Created placeholder FIFO: {fifo_path}")
-                except Exception as e:
-                    logger.error(f"Failed to create FIFO {fifo_path}: {e}")
+            # Just check if FIFO exists, don't create it
+            if os.path.exists(fifo_path):
+                logger.info(f"FIFO available: {fifo_path}")
             else:
-                logger.info(f"FIFO already exists: {fifo_path}")
+                logger.warning(
+                    f"FIFO not yet available: {fifo_path} (waiting for apphost{i + 1} to start)"
+                )
 
     def build_pipeline(self, use_cache=False):
         """Build the GStreamer pipeline with input selectors and NVIDIA components."""
@@ -271,30 +225,60 @@ class StaticTiler:
 
         # Build input selector branches for each input slot
         for slot_idx in range(self.num_inputs):
-            # Create input selector for this slot
-            selector = Gst.ElementFactory.make("input-selector", f"selector-{slot_idx}")
-            if not selector:
-                logger.error(f"Failed to create input-selector for slot {slot_idx}")
-                return False
+            # 1-to-1 mapping: slot N uses apphost N
+            apphost_idx = slot_idx
 
-            self.input_selectors.append(selector)
-            self.pipeline.add(selector)
-
-            # Create queue after selector
-            queue_post = Gst.ElementFactory.make(
-                "queue", f"queue-post-selector-{slot_idx}"
+            # Construct FIFO path - maps to shared volume
+            # apphost creates at /dev/shm/apphostN_video.fifo in its container
+            # which is mounted at /dev/shm/apphostN/ in static-tiler
+            fifo_path = (
+                f"/dev/shm/apphost{apphost_idx + 1}/apphost{apphost_idx + 1}_video.fifo"
             )
-            if not queue_post:
-                logger.error(
-                    f"Failed to create post-selector queue for slot {slot_idx}"
+
+            # Check if FIFO exists
+            if not os.path.exists(fifo_path):
+                logger.warning(
+                    f"FIFO does not exist: {fifo_path} - will wait for it to be created"
                 )
+
+            # Create filesrc
+            filesrc = Gst.ElementFactory.make("filesrc", f"filesrc-slot{slot_idx}")
+            if not filesrc:
+                logger.error(f"Failed to create filesrc for slot {slot_idx}")
                 return False
 
-            queue_post.set_property("max-size-buffers", 10)
-            queue_post.set_property("max-size-bytes", 0)
-            queue_post.set_property("max-size-time", 0)
+            filesrc.set_property("location", fifo_path)
 
-            self.pipeline.add(queue_post)
+            # Create videoparse
+            videoparse = Gst.ElementFactory.make(
+                "videoparse", f"videoparse-slot{slot_idx}"
+            )
+            if not videoparse:
+                logger.error(f"Failed to create videoparse for slot {slot_idx}")
+                return False
+
+            videoparse.set_property(
+                "format", 8
+            )  # GST_VIDEO_FORMAT_RGBA (raw input from apphost)
+            videoparse.set_property("width", 1920)
+            videoparse.set_property("height", 1080)
+            videoparse.set_property("framerate", Gst.Fraction(30, 1))
+
+            # Add to pipeline
+            self.pipeline.add(filesrc)
+            self.pipeline.add(videoparse)
+
+            # Create queue after videoparse
+            queue_parse = Gst.ElementFactory.make("queue", f"queue-parse-{slot_idx}")
+            if not queue_parse:
+                logger.error(f"Failed to create parse queue for slot {slot_idx}")
+                return False
+
+            queue_parse.set_property("max-size-buffers", 10)
+            queue_parse.set_property("max-size-bytes", 0)
+            queue_parse.set_property("max-size-time", 0)
+
+            self.pipeline.add(queue_parse)
 
             # Create videoconvert to normalize format
             videoconv = Gst.ElementFactory.make("videoconvert", f"videoconv-{slot_idx}")
@@ -347,7 +331,18 @@ class StaticTiler:
             queue_mux.set_property("max-size-buffers", 10)
             self.pipeline.add(queue_mux)
 
-            # Add tee and fpsdisplaysink after selector for debugging each slot
+            # Link: filesrc -> videoparse -> queue
+            if not filesrc.link(videoparse):
+                logger.error(
+                    f"Failed to link filesrc to videoparse for slot {slot_idx}"
+                )
+                return False
+
+            if not videoparse.link(queue_parse):
+                logger.error(f"Failed to link videoparse to queue for slot {slot_idx}")
+                return False
+
+            # Add tee and fpsdisplaysink after queue_parse for debugging each slot
             tee_slot = Gst.ElementFactory.make("tee", f"tee-slot-{slot_idx}")
             fpsdisplay_slot = Gst.ElementFactory.make(
                 "fpsdisplaysink", f"fps-slot-{slot_idx}"
@@ -378,13 +373,25 @@ class StaticTiler:
             if queue_slot_debug:
                 self.pipeline.add(queue_slot_debug)
 
-            # Link: selector -> tee -> queue_post (main path) and tee -> queue_debug -> fpsdisplaysink (debug path)
-            if not selector.link(tee_slot):
-                logger.error(f"Failed to link selector to tee for slot {slot_idx}")
+            # Link: queue_parse -> tee -> queue_post (main path) and tee -> queue_debug -> fpsdisplaysink (debug path)
+            if not queue_parse.link(tee_slot):
+                logger.error(f"Failed to link queue_parse to tee for slot {slot_idx}")
                 return False
 
+            # Create queue after tee (main path)
+            queue_post = Gst.ElementFactory.make("queue", f"queue-post-tee-{slot_idx}")
+            if not queue_post:
+                logger.error(f"Failed to create post-tee queue for slot {slot_idx}")
+                return False
+
+            queue_post.set_property("max-size-buffers", 10)
+            queue_post.set_property("max-size-bytes", 0)
+            queue_post.set_property("max-size-time", 0)
+
+            self.pipeline.add(queue_post)
+
             if not tee_slot.link(queue_post):
-                logger.error(f"Failed to link tee to queue for slot {slot_idx}")
+                logger.error(f"Failed to link tee to queue_post for slot {slot_idx}")
                 return False
 
             # Debug path
@@ -458,92 +465,9 @@ class StaticTiler:
                 )
                 return False
 
-            logger.info(f"Successfully linked slot {slot_idx} to streammux")
-
-            # Create source branches - one for each apphost feeding into this selector
-            for apphost_idx in range(self.num_apphosts):
-                # Construct FIFO path
-                fifo_path = f"/dev/shm/apphost{apphost_idx + 1}/apphost{apphost_idx + 1}_video.fifo"
-
-                # Check if FIFO exists
-                if not os.path.exists(fifo_path):
-                    logger.warning(
-                        f"FIFO does not exist: {fifo_path} - will wait for it to be created"
-                    )
-
-                # Create filesrc
-                filesrc = Gst.ElementFactory.make(
-                    "filesrc", f"filesrc-slot{slot_idx}-apphost{apphost_idx}"
-                )
-                if not filesrc:
-                    logger.error(
-                        f"Failed to create filesrc for slot {slot_idx}, apphost {apphost_idx}"
-                    )
-                    return False
-
-                filesrc.set_property("location", fifo_path)
-
-                # Create videoparse
-                videoparse = Gst.ElementFactory.make(
-                    "videoparse", f"videoparse-slot{slot_idx}-apphost{apphost_idx}"
-                )
-                if not videoparse:
-                    logger.error(
-                        f"Failed to create videoparse for slot {slot_idx}, apphost {apphost_idx}"
-                    )
-                    return False
-
-                videoparse.set_property(
-                    "format", 8
-                )  # GST_VIDEO_FORMAT_RGBA (raw input from apphost)
-                videoparse.set_property("width", 1920)
-                videoparse.set_property("height", 1080)
-                videoparse.set_property("framerate", Gst.Fraction(30, 1))
-
-                # Create queue before selector
-                queue_pre = Gst.ElementFactory.make(
-                    "queue", f"queue-pre-selector-slot{slot_idx}-apphost{apphost_idx}"
-                )
-                if not queue_pre:
-                    logger.error(
-                        f"Failed to create pre-selector queue for slot {slot_idx}, apphost {apphost_idx}"
-                    )
-                    return False
-
-                queue_pre.set_property("max-size-buffers", 10)
-                queue_pre.set_property("max-size-bytes", 0)
-                queue_pre.set_property("max-size-time", 0)
-
-                # Add to pipeline
-                self.pipeline.add(filesrc)
-                self.pipeline.add(videoparse)
-                self.pipeline.add(queue_pre)
-
-                # Link: filesrc -> videoparse -> queue -> selector
-                if not filesrc.link(videoparse):
-                    logger.error(
-                        f"Failed to link filesrc to videoparse for slot {slot_idx}, apphost {apphost_idx}"
-                    )
-                    return False
-
-                if not videoparse.link(queue_pre):
-                    logger.error(
-                        f"Failed to link videoparse to queue for slot {slot_idx}, apphost {apphost_idx}"
-                    )
-                    return False
-
-                if not queue_pre.link(selector):
-                    logger.error(
-                        f"Failed to link queue to selector for slot {slot_idx}, apphost {apphost_idx}"
-                    )
-                    return False
-
-            # Set the active pad based on initial assignment
-            assigned_apphost = self.input_assignments[slot_idx]
-            sink_pads = list(selector.iterate_sink_pads())
-            if assigned_apphost < len(sink_pads):
-                selector.set_property("active-pad", sink_pads[assigned_apphost])
-                logger.info(f"Set slot {slot_idx} to use apphost {assigned_apphost}")
+            logger.info(
+                f"Successfully linked slot {slot_idx} to streammux (1-to-1 with apphost{apphost_idx + 1})"
+            )
 
         # Add bus watch for messages with async handling
         bus = self.pipeline.get_bus()
