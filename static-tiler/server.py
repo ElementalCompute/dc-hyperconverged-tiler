@@ -203,6 +203,14 @@ class StaticTiler:
 
             self.pipeline.add(queue_post)
 
+            # Create videoconvert to normalize format
+            videoconv = Gst.ElementFactory.make("videoconvert", f"videoconv-{slot_idx}")
+            if not videoconv:
+                logger.error(f"Failed to create videoconvert for slot {slot_idx}")
+                return False
+
+            self.pipeline.add(videoconv)
+
             # Create nvvideoconvert to upload to GPU
             nvvidconv = Gst.ElementFactory.make(
                 "nvvideoconvert", f"nvvidconv-{slot_idx}"
@@ -214,19 +222,27 @@ class StaticTiler:
             self.pipeline.add(nvvidconv)
 
             # Create capsfilter for nvvideoconvert output
-            caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=RGBA")
+            caps = Gst.Caps.from_string(
+                "video/x-raw(memory:NVMM),format=RGBA,width=1920,height=1080,framerate=30/1"
+            )
             capsfilter = Gst.ElementFactory.make("capsfilter", f"capsfilter-{slot_idx}")
             capsfilter.set_property("caps", caps)
             self.pipeline.add(capsfilter)
 
-            # Link: selector -> queue -> nvvideoconvert -> capsfilter -> streammux
+            # Link: selector -> queue -> videoconvert -> nvvideoconvert -> capsfilter -> streammux
             if not selector.link(queue_post):
                 logger.error(f"Failed to link selector to queue for slot {slot_idx}")
                 return False
 
-            if not queue_post.link(nvvidconv):
+            if not queue_post.link(videoconv):
                 logger.error(
-                    f"Failed to link queue to nvvideoconvert for slot {slot_idx}"
+                    f"Failed to link queue to videoconvert for slot {slot_idx}"
+                )
+                return False
+
+            if not videoconv.link(nvvidconv):
+                logger.error(
+                    f"Failed to link videoconvert to nvvideoconvert for slot {slot_idx}"
                 )
                 return False
 
@@ -236,9 +252,9 @@ class StaticTiler:
                 )
                 return False
 
-            # Get sink pad from streammux
+            # Get sink pad from streammux using request_pad_simple
             sinkpad_name = f"sink_{slot_idx}"
-            sinkpad = streammux.get_request_pad(sinkpad_name)
+            sinkpad = streammux.request_pad_simple(sinkpad_name)
             if not sinkpad:
                 logger.error(f"Failed to get sink pad {sinkpad_name} from streammux")
                 return False
