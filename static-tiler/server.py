@@ -91,9 +91,39 @@ class StaticTiler:
                 selector.set_property("active-pad", sink_pads[apphost_index])
                 logger.info(f"Switched slot {slot_index} to apphost {apphost_index}")
 
+    def create_placeholder_fifos(self):
+        """Create placeholder FIFOs for apphosts that don't exist yet."""
+        logger.info("Checking and creating placeholder FIFOs...")
+
+        for i in range(self.num_apphosts):
+            fifo_dir = f"/dev/shm/apphost{i + 1}"
+            fifo_path = f"{fifo_dir}/apphost{i + 1}_video.fifo"
+
+            # Create directory if it doesn't exist
+            if not os.path.exists(fifo_dir):
+                try:
+                    os.makedirs(fifo_dir, exist_ok=True)
+                    logger.info(f"Created directory: {fifo_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to create directory {fifo_dir}: {e}")
+                    continue
+
+            # Create FIFO if it doesn't exist
+            if not os.path.exists(fifo_path):
+                try:
+                    os.mkfifo(fifo_path)
+                    logger.info(f"Created placeholder FIFO: {fifo_path}")
+                except Exception as e:
+                    logger.error(f"Failed to create FIFO {fifo_path}: {e}")
+            else:
+                logger.info(f"FIFO already exists: {fifo_path}")
+
     def build_pipeline(self):
         """Build the GStreamer pipeline with input selectors and NVIDIA components."""
         logger.info("Building GStreamer pipeline...")
+
+        # Create placeholder FIFOs if they don't exist
+        self.create_placeholder_fifos()
 
         # Check FIFO availability before building pipeline
         available_fifos = []
