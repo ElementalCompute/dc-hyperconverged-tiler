@@ -91,6 +91,12 @@ class StaticTiler:
                 selector.set_property("active-pad", sink_pads[apphost_index])
                 logger.info(f"Switched slot {slot_index} to apphost {apphost_index}")
 
+    def on_fps_measurement(self, fpsdisplaysink, fps, droprate, avgfps, name):
+        """Callback for FPS measurements."""
+        logger.info(
+            f"[{name}] FPS: {fps:.2f}, AvgFPS: {avgfps:.2f}, DropRate: {droprate:.2f}"
+        )
+
     def create_placeholder_fifos(self):
         """Create placeholder FIFOs for apphosts that don't exist yet."""
         logger.info("Checking and creating placeholder FIFOs...")
@@ -118,9 +124,9 @@ class StaticTiler:
             else:
                 logger.info(f"FIFO already exists: {fifo_path}")
 
-    def build_pipeline(self):
+    def build_pipeline(self, use_cache=False):
         """Build the GStreamer pipeline with input selectors and NVIDIA components."""
-        logger.info("Building GStreamer pipeline...")
+        logger.info("Building GStreamer pipeline (cache disabled)...")
 
         # Create placeholder FIFOs if they don't exist
         self.create_placeholder_fifos()
@@ -214,12 +220,18 @@ class StaticTiler:
         fpsdisplay_mux = Gst.ElementFactory.make("fpsdisplaysink", "fps-after-mux")
         if fpsdisplay_mux:
             fpsdisplay_mux.set_property("text-overlay", False)
-            fpsdisplay_mux.set_property(
-                "video-sink", Gst.ElementFactory.make("fakesink", "fake-mux")
-            )
+            fakesink_mux = Gst.ElementFactory.make("fakesink", "fake-mux")
+            if fakesink_mux:
+                fakesink_mux.set_property("sync", False)
+            fpsdisplay_mux.set_property("video-sink", fakesink_mux)
             fpsdisplay_mux.set_property("signal-fps-measurements", True)
-            fpsdisplay_mux.set_property("fps-update-interval", 1000)
+            fpsdisplay_mux.set_property("fps-update-interval", 2000)
+            fpsdisplay_mux.connect(
+                "fps-measurements", self.on_fps_measurement, "AFTER-MUX"
+            )
         queue_mux_debug = Gst.ElementFactory.make("queue", "queue-mux-debug")
+        if queue_mux_debug:
+            queue_mux_debug.set_property("max-size-buffers", 2)
 
         self.pipeline.add(tee_mux)
         if fpsdisplay_mux:
@@ -348,8 +360,12 @@ class StaticTiler:
                 if fakesink_slot:
                     fakesink_slot.set_property("sync", False)
                 fpsdisplay_slot.set_property("video-sink", fakesink_slot)
-                fpsdisplay_slot.set_property("signal-fps-measurements", False)
-                fpsdisplay_slot.set_property("silent", True)
+                fpsdisplay_slot.set_property("signal-fps-measurements", True)
+                fpsdisplay_slot.set_property("fps-update-interval", 5000)
+                fpsdisplay_slot.set_property("silent", False)
+                fpsdisplay_slot.connect(
+                    "fps-measurements", self.on_fps_measurement, f"SLOT-{slot_idx}"
+                )
             queue_slot_debug = Gst.ElementFactory.make(
                 "queue", f"queue-slot-debug-{slot_idx}"
             )
@@ -637,8 +653,8 @@ def main():
         grid_rows=grid_rows,
     )
 
-    # Build pipeline
-    if not tiler.build_pipeline():
+    # Build pipeline (with cache disabled)
+    if not tiler.build_pipeline(use_cache=False):
         logger.error("Failed to build pipeline")
         sys.exit(1)
 
