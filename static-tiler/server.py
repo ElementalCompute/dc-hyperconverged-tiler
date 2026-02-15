@@ -468,7 +468,7 @@ class StaticTiler:
                 return False
 
             logger.info(
-                f"Successfully linked slot {slot_idx} to streammux (1-to-1 with apphost{apphost_idx + 1})"
+                f"Successfully linked slot {slot_idx} to streammux (using videotestsrc for testing)"
             )
 
         # Add bus watch for messages with async handling
