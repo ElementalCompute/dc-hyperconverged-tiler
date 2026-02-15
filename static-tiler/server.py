@@ -211,6 +211,24 @@ class StaticTiler:
 
             self.pipeline.add(videoconv)
 
+            # Create videoscale to ensure proper dimensions
+            videoscale = Gst.ElementFactory.make("videoscale", f"videoscale-{slot_idx}")
+            if not videoscale:
+                logger.error(f"Failed to create videoscale for slot {slot_idx}")
+                return False
+
+            self.pipeline.add(videoscale)
+
+            # Create capsfilter for dimensions before GPU upload
+            caps_cpu = Gst.Caps.from_string(
+                "video/x-raw,format=RGBA,width=1920,height=1080,framerate=30/1"
+            )
+            capsfilter_cpu = Gst.ElementFactory.make(
+                "capsfilter", f"capsfilter-cpu-{slot_idx}"
+            )
+            capsfilter_cpu.set_property("caps", caps_cpu)
+            self.pipeline.add(capsfilter_cpu)
+
             # Create nvvideoconvert to upload to GPU
             nvvidconv = Gst.ElementFactory.make(
                 "nvvideoconvert", f"nvvidconv-{slot_idx}"
@@ -222,14 +240,21 @@ class StaticTiler:
             self.pipeline.add(nvvidconv)
 
             # Create capsfilter for nvvideoconvert output
-            caps = Gst.Caps.from_string(
-                "video/x-raw(memory:NVMM),format=RGBA,width=1920,height=1080,framerate=30/1"
-            )
+            # Simplified caps - let nvstreammux negotiate dimensions
+            caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=RGBA")
             capsfilter = Gst.ElementFactory.make("capsfilter", f"capsfilter-{slot_idx}")
             capsfilter.set_property("caps", caps)
             self.pipeline.add(capsfilter)
 
-            # Link: selector -> queue -> videoconvert -> nvvideoconvert -> capsfilter -> streammux
+            # Create queue between capsfilter and streammux
+            queue_mux = Gst.ElementFactory.make("queue", f"queue-mux-{slot_idx}")
+            if not queue_mux:
+                logger.error(f"Failed to create mux queue for slot {slot_idx}")
+                return False
+            queue_mux.set_property("max-size-buffers", 10)
+            self.pipeline.add(queue_mux)
+
+            # Link: selector -> queue -> videoconvert -> videoscale -> capsfilter_cpu -> nvvideoconvert -> capsfilter -> queue -> streammux
             if not selector.link(queue_post):
                 logger.error(f"Failed to link selector to queue for slot {slot_idx}")
                 return False
@@ -240,9 +265,21 @@ class StaticTiler:
                 )
                 return False
 
-            if not videoconv.link(nvvidconv):
+            if not videoconv.link(videoscale):
                 logger.error(
-                    f"Failed to link videoconvert to nvvideoconvert for slot {slot_idx}"
+                    f"Failed to link videoconvert to videoscale for slot {slot_idx}"
+                )
+                return False
+
+            if not videoscale.link(capsfilter_cpu):
+                logger.error(
+                    f"Failed to link videoscale to capsfilter_cpu for slot {slot_idx}"
+                )
+                return False
+
+            if not capsfilter_cpu.link(nvvidconv):
+                logger.error(
+                    f"Failed to link capsfilter_cpu to nvvideoconvert for slot {slot_idx}"
                 )
                 return False
 
@@ -252,15 +289,31 @@ class StaticTiler:
                 )
                 return False
 
-            # Link capsfilter to streammux using link_pads with request pad
+            if not capsfilter.link(queue_mux):
+                logger.error(
+                    f"Failed to link capsfilter to queue_mux for slot {slot_idx}"
+                )
+                return False
+
+            # Link queue_mux to streammux using link_pads with request pad
             sinkpad_name = f"sink_{slot_idx}"
             logger.info(
-                f"Linking capsfilter to streammux pad {sinkpad_name} for slot {slot_idx}"
+                f"Linking queue_mux to streammux pad {sinkpad_name} for slot {slot_idx}"
             )
 
-            if not capsfilter.link_pads("src", streammux, sinkpad_name):
+            # Debug caps before linking
+            queue_src_pad = queue_mux.get_static_pad("src")
+            if queue_src_pad:
+                logger.info(
+                    f"Queue src pad template caps: {queue_src_pad.get_pad_template_caps()}"
+                )
+
+            if not queue_mux.link_pads("src", streammux, sinkpad_name):
                 logger.error(
-                    f"Failed to link capsfilter to streammux for slot {slot_idx}"
+                    f"Failed to link queue_mux to streammux for slot {slot_idx}"
+                )
+                logger.error(
+                    f"Streammux sink pad template: {streammux.get_pad_template('sink_%u')}"
                 )
                 return False
 
