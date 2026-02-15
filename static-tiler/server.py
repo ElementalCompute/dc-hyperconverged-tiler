@@ -145,10 +145,21 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Running...")
+
+    # Wait a bit and check state
+    import time
+
+    time.sleep(2)
+    ret, state, pending = pipeline.get_state(Gst.CLOCK_TIME_NONE)
+    logger.info(f"Pipeline state after 2s: {state.value_nick} (return: {ret})")
+
     try:
         loop.run()
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"Loop exception: {e}")
+        import traceback
+
+        traceback.print_exc()
 
     pipeline.set_state(Gst.State.NULL)
     logger.info("Done")
