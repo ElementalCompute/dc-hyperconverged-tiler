@@ -153,6 +153,7 @@ cat >> "$COMPOSE_FILE" << EOF
       - NUM_APPHOSTS=$NUM_APPHOSTS
       - GRID_COLS=$GRID_COLS
       - GRID_ROWS=$GRID_ROWS
+      - GST_DEBUG=3
     deploy:
       resources:
         reservations:
