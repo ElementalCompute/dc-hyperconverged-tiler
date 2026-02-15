@@ -119,19 +119,31 @@ def main():
 
     def on_message(bus, message):
         t = message.type
+        print(f"BUS MESSAGE: {t}", flush=True)
+        logger.info(f"Bus message: {t}")
         if t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
+            print(f"ERROR: {err.message}", flush=True)
             logger.error(f"Error: {err.message}")
+            logger.error(f"Debug: {debug}")
             loop.quit()
         elif t == Gst.MessageType.EOS:
+            print("EOS received", flush=True)
             logger.info("EOS")
             loop.quit()
+        elif t == Gst.MessageType.WARNING:
+            warn, debug = message.parse_warning()
+            logger.warning(f"Warning: {warn.message}")
 
     bus.connect("message", on_message)
+    print("Bus connected", flush=True)
 
     # Start pipeline
     logger.info("Starting pipeline...")
-    pipeline.set_state(Gst.State.PLAYING)
+    print("Setting pipeline to PLAYING...", flush=True)
+    ret = pipeline.set_state(Gst.State.PLAYING)
+    print(f"Set state returned: {ret}", flush=True)
+    logger.info(f"Set state result: {ret}")
 
     # Run loop
     loop = GLib.MainLoop()
@@ -145,21 +157,29 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Running...")
+    print("About to enter main loop...", flush=True)
 
     # Wait a bit and check state
     import time
 
-    time.sleep(2)
+    time.sleep(1)
     ret, state, pending = pipeline.get_state(Gst.CLOCK_TIME_NONE)
-    logger.info(f"Pipeline state after 2s: {state.value_nick} (return: {ret})")
+    print(f"Pipeline state after 1s: {state.value_nick}", flush=True)
+    logger.info(f"Pipeline state after 1s: {state.value_nick} (return: {ret})")
 
+    print("Starting loop.run()...", flush=True)
     try:
         loop.run()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt", flush=True)
     except Exception as e:
+        print(f"Loop exception: {e}", flush=True)
         logger.error(f"Loop exception: {e}")
         import traceback
 
         traceback.print_exc()
+
+    print("Loop exited", flush=True)
 
     pipeline.set_state(Gst.State.NULL)
     logger.info("Done")
