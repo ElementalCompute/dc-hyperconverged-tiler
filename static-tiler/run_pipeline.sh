@@ -7,6 +7,7 @@ gst-launch-1.0 \
   nvmultistreamtiler rows=4 columns=4 width=3840 height=2160 ! \
   nvv4l2h264enc bitrate=8000000 ! \
   h264parse ! \
+  mpegtsmux ! \
   tcpserversink host=0.0.0.0 port=6000 sync=false \
   videotestsrc pattern=0 is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_0 \
   videotestsrc pattern=1 is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_1 \
