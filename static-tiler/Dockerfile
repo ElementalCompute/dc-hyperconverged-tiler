@@ -8,4 +8,6 @@ WORKDIR /app
 COPY run_pipeline.sh /app/run_pipeline.sh
 RUN chmod +x /app/run_pipeline.sh
 
+# Override the base image entrypoint
+ENTRYPOINT []
 CMD ["/app/run_pipeline.sh"]
