@@ -148,6 +148,7 @@ done
 # Add privileged mode and deploy section for GPU
 cat >> "$COMPOSE_FILE" << EOF
     privileged: true
+    ipc: host
     deploy:
       resources:
         reservations:
@@ -210,6 +211,7 @@ for i in $(seq 1 $NUM_APPHOSTS); do
   apphost${i}:
     build: ./apphost
     container_name: apphost${i}
+    ipc: host
     environment:
       - DISPLAY=:99
       - PORT=$port

@@ -5,6 +5,7 @@ services:
     build: ./static-tiler
     container_name: static-tiler
     privileged: true
+    ipc: host
     ports:
       - "6000:6000"
       - "4000:4000"
@@ -73,6 +74,7 @@ services:
   apphost:
     build: ./apphost
     container_name: apphost
+    ipc: host
     ports:
       - "3000:3000"
     networks:

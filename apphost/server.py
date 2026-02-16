@@ -183,24 +183,17 @@ class BrowserManager:
         logger.info("Browser started successfully")
 
     async def _start_gstreamer(self):
-        """Start GStreamer pipeline to capture X display and output to named pipe (FIFO)"""
+        """Start GStreamer pipeline to capture X display and output to shmsink"""
         logger.info("Starting GStreamer pipeline...")
 
         service_name = os.environ.get("SERVICE_NAME", "apphost")
-        fifo_path = f"/dev/shm/{service_name}_video.fifo"
-
-        # Create named pipe (FIFO) if it doesn't exist
-        if not os.path.exists(fifo_path):
-            os.mkfifo(fifo_path)
-            logger.info(f"Created FIFO at {fifo_path}")
-        else:
-            logger.info(f"FIFO already exists at {fifo_path}")
+        shm_socket = f"/dev/shm/{service_name}_socket"
 
         # GStreamer pipeline:
         # ximagesrc captures the X display
         # videoconvert ensures proper format
         # video/x-raw caps specify format
-        # filesink outputs to named pipe (FIFO)
+        # shmsink outputs to shared memory socket
         pipeline_cmd = [
             "gst-launch-1.0",
             "-e",
@@ -209,19 +202,21 @@ class BrowserManager:
             "use-damage=false",
             "show-pointer=false",
             "!",
-            "video/x-raw,framerate=30/1",
+            "video/x-raw,framerate=60/1",
             "!",
             "videoconvert",
             "!",
-            "video/x-raw,format=RGBA",
+            "video/x-raw,format=RGBA,width=1920,height=1080",
             "!",
-            "filesink",
-            f"location={fifo_path}",
+            "shmsink",
+            f"socket-path={shm_socket}",
+            "wait-for-connection=false",
             "sync=false",
+            "shm-size=10000000",
         ]
 
         logger.info(f"GStreamer pipeline: {' '.join(pipeline_cmd)}")
-        logger.info(f"Streaming to: {fifo_path}")
+        logger.info(f"Streaming to: {shm_socket}")
 
         # Start pipeline in background
         self.gst_pipeline = subprocess.Popen(
@@ -467,7 +462,7 @@ def serve():
     server.start()
 
     logger.info(f"AppHost gRPC server started on port {port}")
-    logger.info(f"Browser ready, streaming to /dev/shm/{service_name}_video")
+    logger.info(f"Browser ready, streaming to /dev/shm/{service_name}_socket")
     print(f"AppHost {service_name} ready on port {port}")
 
     try:
