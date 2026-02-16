@@ -5,8 +5,8 @@ echo "Starting GStreamer pipeline..."
 gst-launch-1.0 \
   nvstreammux name=mux width=1920 height=1080 batch-size=16 batched-push-timeout=40000 ! \
   nvmultistreamtiler rows=4 columns=4 width=3840 height=2160 ! \
-  nvv4l2h264enc bitrate=8000000 ! \
-  h264parse config-interval=-1! \
+  nvv4l2h264enc bitrate=8000000 idrinterval=1 iframeinterval=1 ! \
+  h264parse config-interval=-1 ! \
   mpegtsmux ! \
   tcpserversink host=0.0.0.0 port=6000 sync=false \
   videotestsrc pattern=0 is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_0 \
