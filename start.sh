@@ -136,14 +136,8 @@ services:
       - tiler-network
     volumes:
       - ./static-tiler:/app
+      - /dev/shm:/dev/shm
 EOF
-
-# Add volume mappings for all apphosts
-for i in $(seq 1 $NUM_APPHOSTS); do
-    cat >> "$COMPOSE_FILE" << EOF
-      - apphost${i}-shm:/dev/shm/apphost${i}
-EOF
-done
 
 # Add privileged mode and deploy section for GPU
 cat >> "$COMPOSE_FILE" << EOF
@@ -222,7 +216,7 @@ for i in $(seq 1 $NUM_APPHOSTS); do
     networks:
       - tiler-network
     volumes:
-      - apphost${i}-shm:/dev/shm
+      - /dev/shm:/dev/shm
     restart: unless-stopped
 EOF
 done
@@ -233,21 +227,7 @@ cat >> "$COMPOSE_FILE" << EOF
 networks:
   tiler-network:
     driver: bridge
-
-volumes:
 EOF
-
-# Generate volume definitions for all apphosts
-for i in $(seq 1 $NUM_APPHOSTS); do
-    cat >> "$COMPOSE_FILE" << EOF
-  apphost${i}-shm:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=1g
-EOF
-done
 
 echo "Docker compose file generated: $COMPOSE_FILE"
 echo ""
