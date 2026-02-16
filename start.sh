@@ -106,8 +106,14 @@ update_cache() {
 echo "Bringing down existing containers..."
 docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
 
-# Rebuild services if needed
-SERVICES=("static-tiler" "apphost" "controller")
+# Build apphost with explicit tag and no cache to ensure fresh build
+echo "Building apphost with explicit tag..."
+cd "$SCRIPT_DIR/apphost"
+docker build --no-cache -t apphost-explicit:latest .
+cd "$SCRIPT_DIR"
+
+# Rebuild other services if needed
+SERVICES=("static-tiler" "controller")
 
 for service in "${SERVICES[@]}"; do
     if needs_rebuild "$service"; then
@@ -214,7 +220,7 @@ for i in $(seq 1 $NUM_APPHOSTS); do
     cat >> "$COMPOSE_FILE" << EOF
 
   apphost${i}:
-    build: ./apphost
+    image: apphost-explicit:latest
     container_name: apphost${i}
     ipc: host
     environment:
