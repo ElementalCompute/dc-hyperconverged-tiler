@@ -212,12 +212,12 @@ class BrowserManager:
             "video/x-raw,format=RGBA,width=1920,height=1080",
             "udpsink",
             "host=127.0.0.1",
-            f"port={rtp_port}",
+            f"port={udp_port}",
             "sync=false",
         ]
 
         logger.info(f"GStreamer pipeline: {' '.join(pipeline_cmd)}")
-        logger.info(f"Streaming to: localhost:{rtp_port}")
+        logger.info(f"Streaming to: localhost:{udp_port}")
 
         # Start pipeline in background
         self.gst_pipeline = subprocess.Popen(
@@ -463,9 +463,7 @@ def serve():
     server.start()
 
     logger.info(f"AppHost gRPC server started on port {port}")
-    logger.info(
-        f"Browser ready, streaming to localhost:{port + 1700}"
-    )  # Match RTP port calculation
+    logger.info(f"Browser ready, streaming to localhost:{port + 1700}")
     print(f"AppHost {service_name} ready on port {port}")
 
     try:
