@@ -193,7 +193,7 @@ class BrowserManager:
             if service_name.startswith("apphost")
             else 1
         )
-        rtp_port = 2000 + apphost_num
+        udp_port = 2000 + apphost_num
 
         # GStreamer pipeline:
         # ximagesrc captures the X display
@@ -212,9 +212,6 @@ class BrowserManager:
             "videoconvert",
             "!",
             "video/x-raw,format=RGBA,width=1920,height=1080",
-            "!",
-            "rtpgstpay",
-            "!",
             "udpsink",
             "host=127.0.0.1",
             f"port={rtp_port}",
