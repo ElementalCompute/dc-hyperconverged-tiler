@@ -1,6 +1,18 @@
 #!/bin/bash
 
-echo "Starting GStreamer pipeline..."
+echo "Waiting for apphost FIFOs to be created..."
+
+# Wait for all FIFOs to exist
+for i in {1..16}; do
+  FIFO_PATH="/dev/shm/apphost${i}/apphost${i}_video.fifo"
+  while [ ! -p "$FIFO_PATH" ]; do
+    echo "Waiting for $FIFO_PATH..."
+    sleep 1
+  done
+  echo "Found $FIFO_PATH"
+done
+
+echo "All FIFOs ready. Starting GStreamer pipeline..."
 
 gst-launch-1.0 \
   nvstreammux name=mux width=1920 height=1080 batch-size=16 batched-push-timeout=40000 ! \
