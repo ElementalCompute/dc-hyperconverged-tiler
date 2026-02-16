@@ -4,27 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Install GStreamer Python bindings and development packages
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    python3-gi \
-    python3-gi-cairo \
-    python3-gst-1.0 \
-    gir1.2-gstreamer-1.0 \
-    gir1.2-gst-plugins-base-1.0 \
-    libgirepository1.0-dev \
-    libcairo2-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+# Copy the launch script
+COPY run_pipeline.sh /app/run_pipeline.sh
+RUN chmod +x /app/run_pipeline.sh
 
-COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY start_server.sh /app/start_server.sh
-RUN chmod +x /app/start_server.sh
-
-COPY . /app
-
-WORKDIR /app
-ENTRYPOINT []
-CMD ["python3", "server.py"]
+CMD ["/app/run_pipeline.sh"]

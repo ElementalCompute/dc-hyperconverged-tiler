@@ -1,5 +1,0 @@
-grpcio
-grpcio-tools
-grpcio-health-checking
-protobuf
-PyGObject
