@@ -151,20 +151,33 @@ class BrowserManager:
         logger.info(f"noVNC started on port {novnc_port} (VNC backend: {vnc_port})")
 
     async def _start_browser(self):
-        """Start Playwright browser"""
-        logger.info("Starting Playwright browser...")
+        """Start Playwright browser under xvfb"""
+        logger.info("Starting Playwright browser under xvfb...")
+
+        # Use xvfb-run wrapper for proper X server handling
+        import os
+
+        # Start xvfb-run if needed
+        xvfb_proc = None
+        if not os.environ.get("DISPLAY"):
+            xvfb_cmd = ["Xvfb", ":99", "-screen", "0", "1920x1080x24"]
+            xvfb_proc = subprocess.Popen(xvfb_cmd)
+            os.environ["DISPLAY"] = ":99"
+            self.display = ":99"
+            time.sleep(1)  # Wait for Xvfb to start
 
         os.environ["DISPLAY"] = self.display
 
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
-            headless=True,  # Run headless to avoid X11 issues
+            headless=False,  # Use headed mode but with actual X server
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--no-gpu",
+                f"--display={self.display}",
                 "--window-size=1920,1080",
+                "--start-maximized",
             ],
         )
 
@@ -463,7 +476,7 @@ def serve():
     server.start()
 
     logger.info(f"AppHost gRPC server started on port {port}")
-    logger.info(f"Browser ready, streaming to localhost:{port + 1700}")
+    logger.info(f"Browser ready, streaming to localhost:{port + 1701}")
     print(f"AppHost {service_name} ready on port {port}")
 
     try:

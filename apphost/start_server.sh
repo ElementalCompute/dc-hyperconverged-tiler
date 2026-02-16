@@ -1,10 +1,20 @@
 #!/bin/bash
 set -e
 
+# Force Xvfb to start since it might not be running
+echo "Starting X Server..."
+Xvfb :99 -screen 0 1920x1080x24 &
+export DISPLAY=:99
+
+# Wait for X server to be ready
+sleep 2
+
+
 echo "Starting apphost container..."
 echo "Port: ${PORT:-3000}"
 echo "Service: ${SERVICE_NAME:-apphost}"
 echo "Display: ${DISPLAY:-:99}"
+echo "X Server validated at: $DISPLAY"
 
 # Generate proto files if they don't exist
 if [ ! -f "/app/browser_pb2.py" ] || [ ! -f "/app/browser_pb2_grpc.py" ]; then
