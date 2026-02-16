@@ -173,6 +173,17 @@ cat >> "$COMPOSE_FILE" << EOF
       NUM_APPHOSTS: $NUM_APPHOSTS
       GRID_COLS: $GRID_COLS
       GRID_ROWS: $GRID_ROWS
+    depends_on:
+EOF
+
+# Add apphost dependencies to static-tiler
+for i in $(seq 1 $NUM_APPHOSTS); do
+    cat >> "$COMPOSE_FILE" << EOF
+      - apphost${i}
+EOF
+done
+
+cat >> "$COMPOSE_FILE" << EOF
     restart: unless-stopped
 
   controller:

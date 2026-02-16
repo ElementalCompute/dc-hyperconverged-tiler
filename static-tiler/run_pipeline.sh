@@ -1,6 +1,18 @@
 #!/bin/bash
 
-echo "Starting GStreamer pipeline..."
+echo "Waiting for apphost sockets to be created..."
+
+# Wait for all shm sockets to exist
+for i in {1..16}; do
+  SOCKET_PATH="/dev/shm/apphost${i}_socket"
+  while [ ! -S "$SOCKET_PATH" ]; do
+    echo "Waiting for $SOCKET_PATH..."
+    sleep 1
+  done
+  echo "Found $SOCKET_PATH"
+done
+
+echo "All sockets ready. Starting GStreamer pipeline..."
 
 gst-launch-1.0 \
   nvstreammux name=mux width=1920 height=1080 batch-size=16 batched-push-timeout=40000 ! \
