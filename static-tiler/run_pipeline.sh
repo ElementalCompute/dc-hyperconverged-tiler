@@ -1,7 +1,5 @@
 #!/bin/bash
-
 echo "Starting GStreamer pipeline..."
-
 gst-launch-1.0 \
   nvstreammux name=mux width=1920 height=1080 batch-size=16 batched-push-timeout=40000 ! \
   nvmultistreamtiler rows=4 columns=4 width=3840 height=2160 ! \
@@ -9,19 +7,19 @@ gst-launch-1.0 \
   h264parse config-interval=-1 ! \
   mpegtsmux ! \
   tcpserversink host=0.0.0.0 port=6000 sync=false \
-  videotestsrc pattern=0 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_0 \
-  videotestsrc pattern=1 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_1 \
-  videotestsrc pattern=2 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_2 \
-  videotestsrc pattern=3 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_3 \
-  videotestsrc pattern=4 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_4 \
-  videotestsrc pattern=5 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_5 \
-  videotestsrc pattern=6 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_6 \
-  videotestsrc pattern=7 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_7 \
-  videotestsrc pattern=8 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_8 \
-  videotestsrc pattern=9 is-live=true  ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_9 \
-  videotestsrc pattern=10 is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_10 \
-  videotestsrc pattern=11 is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_11 \
-  videotestsrc pattern=12 is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_12 \
-  videotestsrc pattern=13 is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_13 \
-  videotestsrc pattern=14 is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_14 \
-  videotestsrc pattern=15 is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_15
+  shmsrc socket-path=/dev/shm/apphost1_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_0 \
+  shmsrc socket-path=/dev/shm/apphost2_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_1 \
+  shmsrc socket-path=/dev/shm/apphost3_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_2 \
+  shmsrc socket-path=/dev/shm/apphost4_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_3 \
+  shmsrc socket-path=/dev/shm/apphost5_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_4 \
+  shmsrc socket-path=/dev/shm/apphost6_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_5 \
+  shmsrc socket-path=/dev/shm/apphost7_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_6 \
+  shmsrc socket-path=/dev/shm/apphost8_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_7 \
+  shmsrc socket-path=/dev/shm/apphost9_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_8 \
+  shmsrc socket-path=/dev/shm/apphost10_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_9 \
+  shmsrc socket-path=/dev/shm/apphost11_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_10 \
+  shmsrc socket-path=/dev/shm/apphost12_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_11 \
+  shmsrc socket-path=/dev/shm/apphost13_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_12 \
+  shmsrc socket-path=/dev/shm/apphost14_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_13 \
+  shmsrc socket-path=/dev/shm/apphost15_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_14 \
+  shmsrc socket-path=/dev/shm/apphost16_socket is-live=true ! video/x-raw,width=1920,height=1080,framerate=60/1,format=RGBA ! queue ! nvvideoconvert ! "video/x-raw(memory:NVMM),format=NV12" ! mux.sink_15
