@@ -210,7 +210,7 @@ class BrowserManager:
             "!",
             "shmsink",
             f"socket-path={shm_socket}",
-            "wait-for-connection=false",
+            "wait-for-connection=true",
             "sync=false",
             "shm-size=10000000",
         ]

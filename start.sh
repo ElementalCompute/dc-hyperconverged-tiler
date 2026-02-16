@@ -246,6 +246,18 @@ networks:
     driver: bridge
 EOF
 
+# Generate volume definitions for all apphosts
+for i in $(seq 1 $NUM_APPHOSTS); do
+    cat >> "$COMPOSE_FILE" << EOF
+  apphost${i}-shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g
+EOF
+done
+
 echo "Docker compose file generated: $COMPOSE_FILE"
 echo ""
 
