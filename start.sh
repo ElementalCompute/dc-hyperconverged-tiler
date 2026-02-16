@@ -145,22 +145,39 @@ for i in $(seq 1 $NUM_APPHOSTS); do
 EOF
 done
 
-# Add environment variables for static-tiler
+# Add privileged mode and deploy section for GPU
 cat >> "$COMPOSE_FILE" << EOF
-    environment:
-      - PORT=6000
-      - NUM_INPUTS=$NUM_INPUTS
-      - NUM_APPHOSTS=$NUM_APPHOSTS
-      - GRID_COLS=$GRID_COLS
-      - GRID_ROWS=$GRID_ROWS
-      - GST_DEBUG=3
+    privileged: true
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+              count: all
+              capabilities: [gpu, compute, video, utility]
+    environment:
+      # GPU access - belt and suspenders approach
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video,graphics
+      CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+      # Prevent CUDA from caching compiled kernels (can cause issues with multiple GPUs)
+      CUDA_CACHE_DISABLE: "1"
+      # GStreamer plugin configuration
+      GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/lib/gst-plugins
+      GST_PLUGIN_SYSTEM_PATH: /opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/x86_64-linux-gnu/gstreamer-1.0
+      # GStreamer debug level (set to 2+ for troubleshooting)
+      GST_DEBUG: "0"
+      # CRITICAL: Library paths for codec plugins
+      LD_LIBRARY_PATH: /opt/nvidia/deepstream/deepstream/lib:/usr/local/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
+      # Python
+      PYTHONUNBUFFERED: "1"
+      # Legacy config
+      PORT: 6000
+      NUM_INPUTS: $NUM_INPUTS
+      NUM_APPHOSTS: $NUM_APPHOSTS
+      GRID_COLS: $GRID_COLS
+      GRID_ROWS: $GRID_ROWS
     restart: unless-stopped
 
   controller:
