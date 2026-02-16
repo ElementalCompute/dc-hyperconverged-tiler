@@ -158,15 +158,13 @@ class BrowserManager:
 
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
-            headless=False,  # Run headed in Xvfb
+            headless=True,  # Run headless to avoid X11 issues
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                f"--display={self.display}",
+                "--no-gpu",
                 "--window-size=1920,1080",
-                "--start-maximized",
             ],
         )
 
