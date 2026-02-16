@@ -183,17 +183,22 @@ class BrowserManager:
         logger.info("Browser started successfully")
 
     async def _start_gstreamer(self):
-        """Start GStreamer pipeline to capture X display and output to shmsink"""
+        """Start GStreamer pipeline to capture X display and output to RTP loopback"""
         logger.info("Starting GStreamer pipeline...")
 
         service_name = os.environ.get("SERVICE_NAME", "apphost")
-        shm_socket = f"/dev/shm/{service_name}_socket"
+        # Calculate port based on service number (apphost1 -> 2001, apphost2 -> 2002, etc.)
+        apphost_num = (
+            int(service_name.replace("apphost", ""))
+            if service_name.startswith("apphost")
+            else 1
+        )
+        rtp_port = 2000 + apphost_num
 
         # GStreamer pipeline:
         # ximagesrc captures the X display
         # videoconvert ensures proper format
-        # video/x-raw caps specify format
-        # shmsink outputs to shared memory socket
+        # rtp provides low latency streaming to localhost
         pipeline_cmd = [
             "gst-launch-1.0",
             "-e",
@@ -202,21 +207,22 @@ class BrowserManager:
             "use-damage=false",
             "show-pointer=false",
             "!",
-            "video/x-raw,framerate=60/1",
+            "video/x-raw,framerate=60/1,width=1920,height=1080",
             "!",
             "videoconvert",
             "!",
             "video/x-raw,format=RGBA,width=1920,height=1080",
             "!",
-            "shmsink",
-            f"socket-path={shm_socket}",
-            "wait-for-connection=true",
+            "rtpgstpay",
+            "!",
+            "udpsink",
+            "host=127.0.0.1",
+            f"port={rtp_port}",
             "sync=false",
-            "shm-size=10000000",
         ]
 
         logger.info(f"GStreamer pipeline: {' '.join(pipeline_cmd)}")
-        logger.info(f"Streaming to: {shm_socket}")
+        logger.info(f"Streaming to: localhost:{rtp_port}")
 
         # Start pipeline in background
         self.gst_pipeline = subprocess.Popen(
@@ -462,7 +468,9 @@ def serve():
     server.start()
 
     logger.info(f"AppHost gRPC server started on port {port}")
-    logger.info(f"Browser ready, streaming to /dev/shm/{service_name}_socket")
+    logger.info(
+        f"Browser ready, streaming to localhost:{port + 1700}"
+    )  # Match RTP port calculation
     print(f"AppHost {service_name} ready on port {port}")
 
     try:
