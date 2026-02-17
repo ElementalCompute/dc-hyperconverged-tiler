@@ -1,13 +1,10 @@
 #!/bin/bash
 set -e
 
-# Force Xvfb to start since it might not be running
-echo "Starting X Server..."
-Xvfb :99 -screen 0 1920x1080x24 &
+# Set DISPLAY environment variable for headed browser mode
 export DISPLAY=:99
-
-# Wait for X server to be ready
-sleep 2
+# No need to start Xvfb here - it will be handled by the server.py if headed mode is used
+sleep 1
 
 
 echo "Starting apphost container..."

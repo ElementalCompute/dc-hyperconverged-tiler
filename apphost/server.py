@@ -36,39 +36,39 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserManager:
-    """Manages Playwright browser instance and GStreamer pipeline"""
+    """Manages Playwright browser instance"""
 
     def __init__(self, display=":99"):
         self.display = display
+        self.headless = os.environ.get("BROWSER_HEADLESS", "true").lower() == "true"
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
-        self.gst_pipeline = None
-        self.xvfb_process = None
-        self.x11vnc_process = None
-        self.novnc_process = None
         self.ready = False
         self.streaming = False
 
     async def start(self):
-        """Initialize Xvfb, browser, and GStreamer pipeline"""
+        """Initialize browser"""
         logger.info("Starting browser manager...")
 
-        # Start Xvfb
-        await self._start_xvfb()
+        # Set up X server only for headed browser mode
+        if not self.headless:
+            logger.info("Setting up Xvfb and related services for headed browser...")
+            await self._start_xvfb()
+            await self._start_x11vnc()
+            await self._start_novnc()
+        else:
+            logger.info("Using headless browser, skipping X server setup")
 
-        # Start x11vnc
-        await self._start_x11vnc()
-
-        # Start noVNC
-        await self._start_novnc()
-
-        # Start Playwright
+        # Start Playwright browser
         await self._start_browser()
 
-        # Start GStreamer pipeline
-        await self._start_gstreamer()
+        # Set up GStreamer pipeline only for headed browser mode
+        if not self.headless:
+            await self._start_gstreamer()
+        else:
+            logger.info("Headless mode: GStreamer streaming skipped")
 
         self.ready = True
         logger.info("Browser manager ready")
@@ -90,20 +90,16 @@ class BrowserManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-
-        # Wait for X server to be ready
         await asyncio.sleep(2)
         logger.info("Xvfb started")
 
     async def _start_x11vnc(self):
         """Start x11vnc VNC server"""
         service_name = os.environ.get("SERVICE_NAME", "apphost")
-        # Extract number from service name (e.g., apphost1 -> 1, apphost2 -> 2)
         service_num = "".join(filter(str.isdigit, service_name)) or "1"
-        vnc_port = 5900 + int(service_num)  # VNC port: 5901, 5902, 5903, 5904
+        vnc_port = 5900 + int(service_num)
 
         logger.info(f"Starting x11vnc on port {vnc_port}...")
-
         self.x11vnc_process = subprocess.Popen(
             [
                 "x11vnc",
@@ -113,27 +109,23 @@ class BrowserManager:
                 str(vnc_port),
                 "-forever",
                 "-shared",
-                "-nopw",  # No password for simplicity
+                "-nopw",
                 "-quiet",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-
-        # Wait for VNC server to be ready
         await asyncio.sleep(1)
         logger.info(f"x11vnc started on port {vnc_port}")
 
     async def _start_novnc(self):
         """Start noVNC websocket proxy"""
         service_name = os.environ.get("SERVICE_NAME", "apphost")
-        # Extract number from service name
         service_num = "".join(filter(str.isdigit, service_name)) or "1"
         vnc_port = 5900 + int(service_num)
-        novnc_port = 7000 + int(service_num) - 1  # noVNC port: 7000, 7001, 7002, 7003
+        novnc_port = 7000 + int(service_num) - 1
 
         logger.info(f"Starting noVNC on port {novnc_port}...")
-
         self.novnc_process = subprocess.Popen(
             [
                 "/opt/novnc/utils/novnc_proxy",
@@ -145,52 +137,33 @@ class BrowserManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-
-        # Wait for noVNC to be ready
         await asyncio.sleep(1)
         logger.info(f"noVNC started on port {novnc_port} (VNC backend: {vnc_port})")
 
     async def _start_browser(self):
-        """Start Playwright browser under xvfb"""
-        logger.info("Starting Playwright browser under xvfb...")
-
-        # Use xvfb-run wrapper for proper X server handling
-        import os
-
-        # Start xvfb-run if needed
-        xvfb_proc = None
-        if not os.environ.get("DISPLAY"):
-            xvfb_cmd = ["Xvfb", ":99", "-screen", "0", "1920x1080x24"]
-            xvfb_proc = subprocess.Popen(xvfb_cmd)
-            os.environ["DISPLAY"] = ":99"
-            self.display = ":99"
-            time.sleep(1)  # Wait for Xvfb to start
-
-        os.environ["DISPLAY"] = self.display
+        """Start Playwright browser"""
+        logger.info("Starting Playwright browser...")
 
         self.playwright = await async_playwright().start()
+
         self.browser = await self.playwright.chromium.launch(
-            headless=False,  # Use headed mode but with actual X server
+            headless=self.headless,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                f"--display={self.display}",
                 "--window-size=1920,1080",
-                "--start-maximized",
             ],
         )
+        mode_text = "headless" if self.headless else "headed"
+        logger.info(f"Browser launched in {mode_text} mode successfully")
 
         self.context = await self.browser.new_context(
             viewport={"width": 1920, "height": 1080},
             screen={"width": 1920, "height": 1080},
         )
-
         self.page = await self.context.new_page()
-
-        # Navigate to blank page
         await self.page.goto("about:blank")
-
         logger.info("Browser started successfully")
 
     async def _start_gstreamer(self):
@@ -198,7 +171,6 @@ class BrowserManager:
         logger.info("Starting GStreamer pipeline...")
 
         service_name = os.environ.get("SERVICE_NAME", "apphost")
-        # Calculate port based on service number (apphost1 -> 2001, apphost2 -> 2002, etc.)
         apphost_num = (
             int(service_name.replace("apphost", ""))
             if service_name.startswith("apphost")
@@ -206,10 +178,6 @@ class BrowserManager:
         )
         udp_port = 2000 + apphost_num
 
-        # GStreamer pipeline:
-        # ximagesrc captures the X display
-        # videoconvert ensures proper format
-        # rtp provides low latency streaming to localhost
         pipeline_cmd = [
             "gst-launch-1.0",
             "-e",
@@ -223,6 +191,7 @@ class BrowserManager:
             "videoconvert",
             "!",
             "video/x-raw,format=RGBA,width=1920,height=1080",
+            "!",
             "udpsink",
             "host=127.0.0.1",
             f"port={udp_port}",
@@ -241,7 +210,6 @@ class BrowserManager:
 
         # Give pipeline time to start
         await asyncio.sleep(1)
-
         if self.gst_pipeline.poll() is None:
             self.streaming = True
             logger.info("GStreamer pipeline started successfully")
@@ -297,7 +265,7 @@ class BrowserManager:
             return None, str(e)
 
     async def get_status(self):
-        """Get status"""
+        """Get browser status"""
         return {
             "browser_ready": self.ready,
             "page_loaded": self.page is not None,
@@ -309,30 +277,30 @@ class BrowserManager:
         """Cleanup resources"""
         logger.info("Cleaning up browser manager...")
 
-        if self.gst_pipeline:
+        # Stream cleanup
+        if hasattr(self, "gst_pipeline") and self.gst_pipeline:
             self.gst_pipeline.terminate()
             self.gst_pipeline.wait()
 
-        if self.novnc_process:
-            self.novnc_process.terminate()
-            self.novnc_process.wait()
+        # X server cleanup (only for headed mode)
+        if not self.headless:
+            if hasattr(self, "novnc_process") and self.novnc_process:
+                self.novnc_process.terminate()
+                self.novnc_process.wait()
+            if hasattr(self, "x11vnc_process") and self.x11vnc_process:
+                self.x11vnc_process.terminate()
+                self.x11vnc_process.wait()
+            if hasattr(self, "xvfb_process") and self.xvfb_process:
+                self.xvfb_process.terminate()
+                self.xvfb_process.wait()
 
-        if self.x11vnc_process:
-            self.x11vnc_process.terminate()
-            self.x11vnc_process.wait()
-
+        # Browser cleanup
         if self.context:
             await self.context.close()
-
         if self.browser:
             await self.browser.close()
-
         if self.playwright:
             await self.playwright.stop()
-
-        if self.xvfb_process:
-            self.xvfb_process.terminate()
-            self.xvfb_process.wait()
 
         logger.info("Cleanup complete")
 
@@ -356,7 +324,6 @@ class BrowserServiceServicer(browser_pb2_grpc.BrowserServiceServicer):
                 self.loop,
             )
             success, error, final_url = future.result(timeout=60)
-
             return browser_pb2.NavigateResponse(
                 success=success, error=error or "", final_url=final_url or ""
             )
@@ -476,7 +443,8 @@ def serve():
     server.start()
 
     logger.info(f"AppHost gRPC server started on port {port}")
-    logger.info(f"Browser ready, streaming to localhost:{port + 1701}")
+    mode_text = "headless" if browser_manager.headless else "headed"
+    logger.info(f"Browser ready ({mode_text} mode)")
     print(f"AppHost {service_name} ready on port {port}")
 
     try:

@@ -82,6 +82,9 @@ services:
     environment:
       - DISPLAY=:99
       - PORT=3000
+      - BROWSER_HEADLESS=true
+    volumes:
+      - ./apphost:/app
     restart: unless-stopped
 
   controller:
